@@ -163,7 +163,6 @@ client.on('interactionCreate', async interaction => {
 
 // Handle voice state updates
 client.on('voiceStateUpdate', async (oldMember, newMember) => {
-    console.log('Voice state updated!'); 
     const newUserChannel = newMember.channelId;
     const oldUserChannel = oldMember.channelId;
 

@@ -1,8 +1,11 @@
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
-const mysql = require("mysql2");
-const chalk = require("chalk");
-const figlet = require("figlet");
+const mongoose = require('mongoose');
+const chalk = require('chalk');
+const figlet = require('figlet');
 require('dotenv').config();
+
+// Import Activity schema
+const Activity = require('./models/Activity');
 
 // Create the Discord client
 const client = new Client({
@@ -13,20 +16,14 @@ const client = new Client({
     ]
 });
 
-// Database Connection
-var conn = mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'your_mysql_password_here',
-    database: process.env.DB_DATABASE || 'discord_voice_time'
-});
-
-conn.connect((err) => {
-    if (err) {
-        console.error('Database connection failed:', err.stack);
-        return;
-    }
-    console.log('Connected to MySQL database.');
+// Connect to MongoDB
+mongoose.connect(process.env.DB_HOST, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+}).then(() => {
+    console.log('Connected to MongoDB');
+}).catch(err => {
+    console.error('MongoDB connection error:', err);
 });
 
 // Register slash commands
@@ -82,7 +79,7 @@ function Time() {
 }
 
 // Bot ready event
-client.on('ready', () => {
+client.on('ready', async () => {
     console.log('─────────────────────────────────────────────');
     console.log(chalk.green(figlet.textSync('TimeSpent', { horizontalLayout: 'full' }) + ' ShiNxz#0001'));
     console.log('─────────────────────────────────────────────');
@@ -92,37 +89,6 @@ client.on('ready', () => {
         > Servers: ${client.guilds.cache.size}`));
     console.log('─────────────────────────────────────────────');
     client.user.setActivity('/commands', { type: 'LISTENING' });
-
-    // Check Databases and create tables if needed
-    conn.query("SHOW TABLES LIKE 'Msgs'", (err, rows) => {
-        if (err) throw err;
-        if (rows.length < 1) {
-            conn.query("CREATE TABLE Msgs (UserID varchar(30) NOT NULL, Msgs int(11) DEFAULT 1) ENGINE=InnoDB DEFAULT CHARSET=latin1;", (err) => {
-                if (err) throw err;
-                console.log("- Msgs Database Built.");
-            });
-        } else {
-            console.log("- Msgs Database Exists.");
-        }
-    });
-
-    conn.query("SHOW TABLES LIKE 'Activity'", (err, rows) => {
-        if (err) throw err;
-        if (rows.length < 1) {
-            conn.query("CREATE TABLE Activity (ID int(11) NOT NULL, UserID varchar(30) NOT NULL, ChannelID varchar(25) NOT NULL, JoinTime int(11) NOT NULL, LeftTime int(11) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;", (err) => {
-                if (err) throw err;
-                conn.query("ALTER TABLE Activity ADD PRIMARY KEY (ID);", (err) => {
-                    if (err) throw err;
-                    conn.query("ALTER TABLE Activity MODIFY ID int(11) NOT NULL AUTO_INCREMENT;", (err) => {
-                        if (err) throw err;
-                        console.log("- Activity Database Built.");
-                    });
-                });
-            });
-        } else {
-            console.log("- Activity Database Exists.");
-        }
-    });
 });
 
 // Slash command handler
@@ -133,31 +99,30 @@ client.on('interactionCreate', async interaction => {
     const options = interaction.options;
 
     if (commandName === 'time') {
-        // Get the specified user or default to the interaction user
         let user = options.getUser('user') || interaction.user;
-
-        // Get the specified channel or leave undefined (to check all channels)
         let channel = options.getChannel('channel');
 
-        // Construct the SQL query based on whether a channel is specified
-        let query = `SELECT * FROM Activity WHERE UserID = '${user.id}' AND LeftTime > 1`;
+        let query = { UserID: user.id, LeftTime: { $gt: 1 } };
         if (channel) {
-            query += ` AND ChannelID = '${channel.id}'`; // Only check the specified channel
+            query.ChannelID = channel.id;
         }
 
-        conn.query(query, (err, rows) => {
-            if (err) throw err;
-            if (rows.length > 0) {
+        try {
+            const activities = await Activity.find(query);
+            if (activities.length > 0) {
                 let total = 0;
-                rows.forEach(row => {
-                    total = total + (row.LeftTime - row.JoinTime);
+                activities.forEach(activity => {
+                    total += (activity.LeftTime - activity.JoinTime);
                 });
                 total = new Date(total * 1000).toISOString().substr(11, 8);
                 interaction.reply(`${user.username} has spent ${total} in ${channel ? `#${channel.name}` : 'all channels'}.`);
             } else {
                 interaction.reply(`${user.username} has spent 00:00:00 in ${channel ? `#${channel.name}` : 'all channels'}.`);
             }
-        });
+        } catch (err) {
+            console.error(err);
+            interaction.reply('An error occurred while retrieving time data.');
+        }
     }
 });
 
@@ -168,33 +133,36 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
 
     if (newUserChannel === oldUserChannel) return;
 
-    if (oldUserChannel != newUserChannel) {
-        if (oldUserChannel == null) {
-            conn.query(`INSERT INTO Activity (UserID, ChannelID, JoinTime) VALUES ('${newMember.id}', '${newUserChannel}', '${Time()}');`, (err) => {
-                if (err) throw err;
+    try {
+        if (oldUserChannel == null && newUserChannel != null) {
+            const newActivity = new Activity({
+                UserID: newMember.id,
+                ChannelID: newUserChannel,
+                JoinTime: Time()
             });
+            await newActivity.save();
         } else if (newUserChannel == null) {
-            conn.query(`SELECT ID FROM Activity WHERE UserID = '${oldMember.id}' AND ChannelID = '${oldUserChannel}' ORDER BY ID DESC`, (err, rows) => {
-                if (err) throw err;
-                if (rows.length > 0) {
-                    conn.query(`UPDATE Activity SET LeftTime = '${Time()}' WHERE ID = ${rows[0].ID}`, (err) => {
-                        if (err) throw err;
-                    });
-                }
-            });
+            const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
+            if (lastActivity) {
+                lastActivity.LeftTime = Time();
+                await lastActivity.save();
+            }
         } else {
-            conn.query(`INSERT INTO Activity (UserID, ChannelID, JoinTime) VALUES ('${newMember.id}', '${newUserChannel}', '${Time()}');`, (err) => {
-                if (err) throw err;
+            const newActivity = new Activity({
+                UserID: newMember.id,
+                ChannelID: newUserChannel,
+                JoinTime: Time()
             });
-            conn.query(`SELECT ID FROM Activity WHERE UserID = '${oldMember.id}' AND ChannelID = '${oldUserChannel}' ORDER BY ID DESC`, (err, rows) => {
-                if (err) throw err;
-                if (rows.length > 0) {
-                    conn.query(`UPDATE Activity SET LeftTime = '${Time()}' WHERE ID = ${rows[0].ID}`, (err) => {
-                        if (err) throw err;
-                    });
-                }
-            });
+            await newActivity.save();
+
+            const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
+            if (lastActivity) {
+                lastActivity.LeftTime = Time();
+                await lastActivity.save();
+            }
         }
+    } catch (err) {
+        console.error('Error updating voice activity:', err);
     }
 });
 

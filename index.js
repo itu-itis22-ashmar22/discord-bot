@@ -134,22 +134,33 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
     if (newUserChannel === oldUserChannel) return;
 
     try {
+        // Fetch the user object to get their username
+        const userObject = await client.users.fetch(newMember.id);
+
         if (oldUserChannel == null && newUserChannel != null) {
+            // User joined a voice channel, create a new entry in the database
             const newActivity = new Activity({
                 UserID: newMember.id,
+                Username: userObject.tag,  // Store the username as well
                 ChannelID: newUserChannel,
-                JoinTime: Time()
+                JoinTime: Time()  // Unix timestamp
             });
             await newActivity.save();
+            console.log(`User ${userObject.tag} joined channel ${newUserChannel}`);
         } else if (newUserChannel == null) {
+            // User left a voice channel, update the LeftTime for the latest record
             const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
             if (lastActivity) {
                 lastActivity.LeftTime = Time();
                 await lastActivity.save();
+                const oldUserObject = await client.users.fetch(oldMember.id);
+                console.log(`User ${oldUserObject.tag} left channel ${oldUserChannel}`);
             }
         } else {
+            // User switched from one voice channel to another
             const newActivity = new Activity({
                 UserID: newMember.id,
+                Username: userObject.tag,  // Store the username as well
                 ChannelID: newUserChannel,
                 JoinTime: Time()
             });
@@ -159,11 +170,14 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
             if (lastActivity) {
                 lastActivity.LeftTime = Time();
                 await lastActivity.save();
+                const oldUserObject = await client.users.fetch(oldMember.id);
+                console.log(`User ${oldUserObject.tag} switched from ${oldUserChannel} to ${newUserChannel}`);
             }
         }
     } catch (err) {
         console.error('Error updating voice activity:', err);
     }
 });
+
 
 client.login(process.env.BOT_TOKEN);

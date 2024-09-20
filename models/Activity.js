@@ -6,6 +6,10 @@ const activitySchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    Username: {
+        type: String,  // New field for username
+        required: true
+    },
     ChannelID: {
         type: String,
         required: true

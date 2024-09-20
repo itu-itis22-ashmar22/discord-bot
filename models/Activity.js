@@ -1,4 +1,3 @@
-// models/Activity.js
 const mongoose = require('mongoose');
 
 const activitySchema = new mongoose.Schema({
@@ -7,10 +6,14 @@ const activitySchema = new mongoose.Schema({
         required: true
     },
     Username: {
-        type: String,  // New field for username
+        type: String,
         required: true
     },
     ChannelID: {
+        type: String,
+        required: true
+    },
+    ChannelName: {  // Add this new field to store the channel name
         type: String,
         required: true
     },
@@ -21,6 +24,18 @@ const activitySchema = new mongoose.Schema({
     LeftTime: {
         type: Number,
         default: null
+    },
+    TimeSpent: {
+        type: String,  // Store in HH:MM:SS format
+        default: '00:00:00'
+    },
+    TotalTime: {
+        type: String,  // Store in HH:MM:SS format
+        default: '00:00:00'
+    },
+    Date: {
+        type: String,  // Human-readable date (YYYY-MM-DD)
+        required: true
     }
 });
 

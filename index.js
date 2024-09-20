@@ -5,7 +5,7 @@ const figlet = require('figlet');
 require('dotenv').config();
 
 // Import Activity schema
-const Activity = require('./models/Activity');
+const Activity = require('./Activity');
 
 // Create the Discord client
 const client = new Client({
@@ -126,58 +126,116 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+// Helper function to convert seconds into HH:MM:SS format
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+
+    return [
+        hours.toString().padStart(2, '0'),
+        minutes.toString().padStart(2, '0'),
+        remainingSeconds.toString().padStart(2, '0')
+    ].join(':');
+}
+
+// Function to get total accumulated time for a user in a specific channel
+async function getTotalTimeForChannel(userID, channelID) {
+    const activities = await Activity.find({ UserID: userID, ChannelID: channelID, LeftTime: { $gt: 1 } });
+
+    let totalSeconds = 0;
+    activities.forEach(activity => {
+        const joinTime = activity.JoinTime;
+        const leftTime = activity.LeftTime || Time();  // If still in the channel, consider the current time
+        totalSeconds += (leftTime - joinTime);
+    });
+
+    return totalSeconds;
+}
+
 // Handle voice state updates
 client.on('voiceStateUpdate', async (oldMember, newMember) => {
     const newUserChannel = newMember.channelId;
     const oldUserChannel = oldMember.channelId;
 
-    if (newUserChannel === oldUserChannel) return;
+    if (newUserChannel === oldUserChannel) return;  // No change in channel
 
     try {
-        // Fetch the user object to get their username
         const userObject = await client.users.fetch(newMember.id);
+        const currentDate = new Date().toISOString().split('T')[0];
 
         if (oldUserChannel == null && newUserChannel != null) {
             // User joined a voice channel, create a new entry in the database
+            const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
             const newActivity = new Activity({
                 UserID: newMember.id,
-                Username: userObject.tag,  // Store the username as well
+                Username: userObject.tag,
                 ChannelID: newUserChannel,
-                JoinTime: Time()  // Unix timestamp
+                ChannelName: channel.name,  // Store the name of the channel
+                JoinTime: Time(),
+                Date: currentDate
             });
             await newActivity.save();
-            console.log(`User ${userObject.tag} joined channel ${newUserChannel}`);
         } else if (newUserChannel == null) {
-            // User left a voice channel, update the LeftTime for the latest record
+            // User left a voice channel, calculate the time spent in the channel
             const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
             if (lastActivity) {
-                lastActivity.LeftTime = Time();
+                const leftTime = Time();
+                const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
+                const timeSpentFormatted = formatTime(timeSpentInSeconds);
+
+                lastActivity.LeftTime = leftTime;
+                lastActivity.TimeSpent = timeSpentFormatted;
+
+                // Calculate the total accumulated time for this user in the specific channel
+                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel);
+                const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
+
+                lastActivity.TotalTime = totalTimeFormatted;
+
                 await lastActivity.save();
-                const oldUserObject = await client.users.fetch(oldMember.id);
-                console.log(`User ${oldUserObject.tag} left channel ${oldUserChannel}`);
+
+                console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
             }
         } else {
             // User switched from one voice channel to another
+            const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
             const newActivity = new Activity({
                 UserID: newMember.id,
-                Username: userObject.tag,  // Store the username as well
+                Username: userObject.tag,
                 ChannelID: newUserChannel,
-                JoinTime: Time()
+                ChannelName: channel.name,  // Store the name of the channel
+                JoinTime: Time(),
+                Date: currentDate
             });
             await newActivity.save();
 
             const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
             if (lastActivity) {
-                lastActivity.LeftTime = Time();
+                const leftTime = Time();
+                const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
+                const timeSpentFormatted = formatTime(timeSpentInSeconds);
+                lastActivity.LeftTime = leftTime;
+                lastActivity.TimeSpent = timeSpentFormatted;
+
+                // Calculate the total accumulated time for this user in the specific channel
+                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel);
+                const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
+
+                lastActivity.TotalTime = totalTimeFormatted;
+
                 await lastActivity.save();
-                const oldUserObject = await client.users.fetch(oldMember.id);
-                console.log(`User ${oldUserObject.tag} switched from ${oldUserChannel} to ${newUserChannel}`);
+
+                console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
             }
         }
     } catch (err) {
-        console.error('Error updating voice activity:', err);
+        console.error('Error updating voice activity in the database:', err);
     }
 });
-
+// Unix time function to get the current timestamp in seconds
+function Time() {
+    return Math.floor(new Date().getTime() / 1000);  // Unix timestamp in seconds
+}
 
 client.login(process.env.BOT_TOKEN);

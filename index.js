@@ -157,10 +157,16 @@ async function getTotalTimeForChannel(userID, channelID, Activity) {
 
 // Handle voice state updates
 client.on('voiceStateUpdate', async (oldMember, newMember) => {
+    const specificChannelID = "1285208699056685129";  // The specific channel ID you want to track
     const newUserChannel = newMember.channelId;
     const oldUserChannel = oldMember.channelId;
 
     if (newUserChannel === oldUserChannel) return;  // No change in channel
+
+    // Only process activity for the specific channel
+    if (newUserChannel !== specificChannelID && oldUserChannel !== specificChannelID) {
+        return;  // Skip activity if it's not the specific channel
+    }
 
     try {
         const userObject = await client.users.fetch(newMember.id);
@@ -170,72 +176,81 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
 
         if (oldUserChannel == null && newUserChannel != null) {
             // User joined a voice channel, create a new entry in the database
-            const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
-            const newActivity = new Activity({
-                UserID: newMember.id,
-                Username: userObject.tag,
-                ChannelID: newUserChannel,
+            if (newUserChannel === specificChannelID) {
+                const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
+                const newActivity = new Activity({
+                    UserID: newMember.id,
+                    Username: userObject.tag,
+                    ChannelID: newUserChannel,
                 ChannelName: channel.name,  // Store the name of the channel
-                JoinTime: Time(),
-                Date: currentDate
-            });
-            await newActivity.save();
+                    JoinTime: Time(),
+                    Date: currentDate
+                });
+                await newActivity.save();
+            }
         } else if (newUserChannel == null) {
-            // User left a voice channel, calculate the time spent in the channel
-            const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
-            if (lastActivity) {
-                const leftTime = Time();
-                const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
-                const timeSpentFormatted = formatTime(timeSpentInSeconds);
+            // User left a voice channel, calculate the time spent in the specific channel
+            if (oldUserChannel === specificChannelID) {
+                const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
+                if (lastActivity) {
+                    const leftTime = Time();
+                    const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
+                    const timeSpentFormatted = formatTime(timeSpentInSeconds);
 
-                lastActivity.LeftTime = leftTime;
-                lastActivity.TimeSpent = timeSpentFormatted;
+                    lastActivity.LeftTime = leftTime;
+                    lastActivity.TimeSpent = timeSpentFormatted;
 
-                 // Calculate the total accumulated time for this user in the specific channel
-                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
-                const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
+                    // Calculate the total accumulated time for this user in the specific channel
+                    const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
+                    const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
 
-                lastActivity.TotalTime = totalTimeFormatted;
+                    lastActivity.TotalTime = totalTimeFormatted;
 
-                await lastActivity.save();
+                    await lastActivity.save();
 
-                console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
+                    console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
+                }
             }
         } else {
             // User switched from one voice channel to another
-            const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
-            const newActivity = new Activity({
-                UserID: newMember.id,
-                Username: userObject.tag,
-                ChannelID: newUserChannel,
+            if (newUserChannel === specificChannelID) {
+                const channel = await client.channels.fetch(newUserChannel);  // Fetch channel information
+                const newActivity = new Activity({
+                    UserID: newMember.id,
+                    Username: userObject.tag,
+                    ChannelID: newUserChannel,
                 ChannelName: channel.name,  // Store the name of the channel
-                JoinTime: Time(),
-                Date: currentDate
-            });
-            await newActivity.save();
+                    JoinTime: Time(),
+                    Date: currentDate
+                });
+                await newActivity.save();
+            }
 
-            const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
-            if (lastActivity) {
-                const leftTime = Time();
-                const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
-                const timeSpentFormatted = formatTime(timeSpentInSeconds);
-                lastActivity.LeftTime = leftTime;
-                lastActivity.TimeSpent = timeSpentFormatted;
+            if (oldUserChannel === specificChannelID) {
+                const lastActivity = await Activity.findOne({ UserID: oldMember.id, ChannelID: oldUserChannel }).sort({ _id: -1 });
+                if (lastActivity) {
+                    const leftTime = Time();
+                    const timeSpentInSeconds = leftTime - lastActivity.JoinTime;
+                    const timeSpentFormatted = formatTime(timeSpentInSeconds);
+                    lastActivity.LeftTime = leftTime;
+                    lastActivity.TimeSpent = timeSpentFormatted;
 
-                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
-                const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
+                    const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
+                    const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
 
-                lastActivity.TotalTime = totalTimeFormatted;
+                    lastActivity.TotalTime = totalTimeFormatted;
 
-                await lastActivity.save();
+                    await lastActivity.save();
 
-                console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
+                    console.log(`Total time for user ${userObject.tag} in channel ${lastActivity.ChannelName} is now ${totalTimeFormatted}`);
+                }
             }
         }
     } catch (err) {
         console.error('Error updating voice activity in the database:', err);
     }
 });
+
 // Unix time function to get the current timestamp in seconds
 function Time() {
     return Math.floor(new Date().getTime() / 1000);  // Unix timestamp in seconds

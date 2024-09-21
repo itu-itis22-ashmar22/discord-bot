@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes,ChannelType } = require('discord.js');
 const mongoose = require('mongoose');
 const chalk = require('chalk');
 const figlet = require('figlet');
@@ -46,6 +46,7 @@ const commands = [
                 name: 'channel',
                 description: 'The voice channel to check',
                 type: 7, // Type 7 is for CHANNEL in Discord's API
+                channel_types: [ChannelType.GuildVoice], // Restrict to voice channels only
                 required: false, // Make this optional
             }
         ]

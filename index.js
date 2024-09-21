@@ -5,7 +5,7 @@ const figlet = require('figlet');
 require('dotenv').config();
 
 // Import Activity schema
-const Activity = require('./Activity');
+const getActivityModel = require('./Activity');
 
 // Create the Discord client
 const client = new Client({
@@ -108,7 +108,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
+            const Activity = getActivityModel(user.username); // Get the dynamic model based on the username
             const activities = await Activity.find(query);
+            
             if (activities.length > 0) {
                 let total = 0;
                 activities.forEach(activity => {
@@ -140,7 +142,7 @@ function formatTime(seconds) {
 }
 
 // Function to get total accumulated time for a user in a specific channel
-async function getTotalTimeForChannel(userID, channelID) {
+async function getTotalTimeForChannel(userID, channelID, Activity) {
     const activities = await Activity.find({ UserID: userID, ChannelID: channelID, LeftTime: { $gt: 1 } });
 
     let totalSeconds = 0;
@@ -163,6 +165,8 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
     try {
         const userObject = await client.users.fetch(newMember.id);
         const currentDate = new Date().toISOString().split('T')[0];
+        const username = userObject.username;  // Get the username dynamically
+        const Activity = getActivityModel(username);  // Use the dynamic model
 
         if (oldUserChannel == null && newUserChannel != null) {
             // User joined a voice channel, create a new entry in the database
@@ -187,8 +191,8 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
                 lastActivity.LeftTime = leftTime;
                 lastActivity.TimeSpent = timeSpentFormatted;
 
-                // Calculate the total accumulated time for this user in the specific channel
-                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel);
+                 // Calculate the total accumulated time for this user in the specific channel
+                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
                 const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
 
                 lastActivity.TotalTime = totalTimeFormatted;
@@ -218,8 +222,7 @@ client.on('voiceStateUpdate', async (oldMember, newMember) => {
                 lastActivity.LeftTime = leftTime;
                 lastActivity.TimeSpent = timeSpentFormatted;
 
-                // Calculate the total accumulated time for this user in the specific channel
-                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel);
+                const totalTimeInSeconds = await getTotalTimeForChannel(oldMember.id, oldUserChannel, Activity);
                 const totalTimeFormatted = formatTime(totalTimeInSeconds + timeSpentInSeconds);
 
                 lastActivity.TotalTime = totalTimeFormatted;

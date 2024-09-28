@@ -117,7 +117,7 @@ client.on('interactionCreate', async interaction => {
                 activities.forEach(activity => {
                     total += (activity.LeftTime - activity.JoinTime);
                 });
-                total = new Date(total * 1000).toISOString().substr(11, 8);
+                total = formatTime(total);
                 interaction.reply(`${user.username} has spent ${total} in ${channel ? `#${channel.name}` : 'all channels'}.`);
             } else {
                 interaction.reply(`${user.username} has spent 00:00:00 in ${channel ? `#${channel.name}` : 'all channels'}.`);
